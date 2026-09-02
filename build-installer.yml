@@ -1,0 +1,102 @@
+name: Build SafeClean Pro Installer
+
+on:
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  installer:
+    runs-on: windows-latest
+    steps:
+      - name: Download latest successful application build
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $runId = gh api "repos/$env:GITHUB_REPOSITORY/actions/workflows/safe-clean-build.yml/runs?status=success&per_page=1" --jq '.workflow_runs[0].id'
+          if (!$runId) { throw "No successful SafeCleanPro build was found." }
+          New-Item -ItemType Directory -Force -Path input | Out-Null
+          gh run download $runId --repo $env:GITHUB_REPOSITORY --name SafeCleanPro-win-x64 --dir input
+          if (!(Test-Path input/SafeCleanPro.exe)) { throw "SafeCleanPro.exe was not downloaded." }
+
+      - name: Install NSIS
+        shell: pwsh
+        run: choco install nsis --no-progress -y
+
+      - name: Create professional Windows installer
+        shell: pwsh
+        run: |
+          @'
+          Unicode True
+          Name "SafeClean Pro"
+          OutFile "SafeCleanPro-Setup.exe"
+          InstallDir "$PROGRAMFILES64\SafeCleanPro"
+          InstallDirRegKey HKLM "Software\SafeCleanPro" "InstallDir"
+          RequestExecutionLevel admin
+          Icon "input\SafeCleanPro.exe"
+          UninstallIcon "$INSTDIR\SafeCleanPro.exe"
+          BrandingText "SafeClean Pro"
+          VIProductVersion "1.0.0.0"
+          VIAddVersionKey "ProductName" "SafeClean Pro"
+          VIAddVersionKey "CompanyName" "SafeClean Pro"
+          VIAddVersionKey "FileDescription" "SafeClean Pro Setup"
+          VIAddVersionKey "FileVersion" "1.0.0"
+          VIAddVersionKey "ProductVersion" "1.0.0"
+
+          !include "MUI2.nsh"
+          !define MUI_ABORTWARNING
+          !define MUI_ICON "input\SafeCleanPro.exe"
+          !define MUI_UNICON "input\SafeCleanPro.exe"
+          !insertmacro MUI_PAGE_WELCOME
+          !insertmacro MUI_PAGE_DIRECTORY
+          !insertmacro MUI_PAGE_INSTFILES
+          !insertmacro MUI_PAGE_FINISH
+          !insertmacro MUI_UNPAGE_CONFIRM
+          !insertmacro MUI_UNPAGE_INSTFILES
+          !insertmacro MUI_LANGUAGE "Vietnamese"
+          !insertmacro MUI_LANGUAGE "English"
+
+          Section "SafeClean Pro" SEC_MAIN
+            SetShellVarContext all
+            SetOutPath "$INSTDIR"
+            File "input\SafeCleanPro.exe"
+            WriteRegStr HKLM "Software\SafeCleanPro" "InstallDir" "$INSTDIR"
+            WriteUninstaller "$INSTDIR\Uninstall.exe"
+            CreateDirectory "$SMPROGRAMS\SafeClean Pro"
+            CreateShortcut "$SMPROGRAMS\SafeClean Pro\SafeClean Pro.lnk" "$INSTDIR\SafeCleanPro.exe"
+            CreateShortcut "$SMPROGRAMS\SafeClean Pro\Gỡ cài đặt.lnk" "$INSTDIR\Uninstall.exe"
+            CreateShortcut "$DESKTOP\SafeClean Pro.lnk" "$INSTDIR\SafeCleanPro.exe"
+            WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\SafeCleanPro" "DisplayName" "SafeClean Pro"
+            WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\SafeCleanPro" "DisplayIcon" "$INSTDIR\SafeCleanPro.exe"
+            WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\SafeCleanPro" "UninstallString" '"$INSTDIR\Uninstall.exe"'
+            WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\SafeCleanPro" "Publisher" "SafeClean Pro"
+            WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\SafeCleanPro" "DisplayVersion" "1.0.0"
+            WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\SafeCleanPro" "NoModify" 1
+            WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\SafeCleanPro" "NoRepair" 1
+          SectionEnd
+
+          Section "Uninstall"
+            SetShellVarContext all
+            Delete "$DESKTOP\SafeClean Pro.lnk"
+            Delete "$SMPROGRAMS\SafeClean Pro\SafeClean Pro.lnk"
+            Delete "$SMPROGRAMS\SafeClean Pro\Gỡ cài đặt.lnk"
+            RMDir "$SMPROGRAMS\SafeClean Pro"
+            Delete "$INSTDIR\SafeCleanPro.exe"
+            Delete "$INSTDIR\Uninstall.exe"
+            RMDir "$INSTDIR"
+            DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\SafeCleanPro"
+            DeleteRegKey HKLM "Software\SafeCleanPro"
+          SectionEnd
+          '@ | Set-Content -Path installer.nsi -Encoding UTF8
+          & "$env:ProgramFiles(x86)\NSIS\makensis.exe" installer.nsi
+          if (!(Test-Path SafeCleanPro-Setup.exe)) { throw "Installer was not created." }
+          Get-FileHash SafeCleanPro-Setup.exe -Algorithm SHA256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SafeCleanPro-Setup
+          path: SafeCleanPro-Setup.exe
+          if-no-files-found: error
