@@ -91,7 +91,7 @@ jobs:
             DeleteRegKey HKLM "Software\SafeCleanPro"
           SectionEnd
           '@ | Set-Content -Path installer.nsi -Encoding UTF8
-          & "$env:ProgramFiles(x86)\NSIS\makensis.exe" installer.nsi
+          & "${env:ProgramFiles(x86)}\NSIS\makensis.exe" installer.nsi
           if (!(Test-Path SafeCleanPro-Setup.exe)) { throw "Installer was not created." }
           Get-FileHash SafeCleanPro-Setup.exe -Algorithm SHA256
 
